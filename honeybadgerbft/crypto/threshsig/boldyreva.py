@@ -7,7 +7,7 @@ Dependencies:
 
 """
 from charm.toolbox.pairinggroup import PairingGroup, ZR, G1, G2, pair
-from base64 import encodestring, decodestring
+from base64 import encodebytes, decodebytes
 from operator import mul
 from functools import reduce
 
@@ -19,25 +19,25 @@ group = PairingGroup('MNT224')
 def serialize(g):
     """ """
     # Only work in G1 here
-    return decodestring(group.serialize(g)[2:])
+    return decodebytes(group.serialize(g)[2:])
 
 
 def deserialize0(g):
     """ """
     # Only work in G1 here
-    return group.deserialize(b'0:'+encodestring(g))
+    return group.deserialize(b'0:'+encodebytes(g))
 
 
 def deserialize1(g):
     """ """
     # Only work in G1 here
-    return group.deserialize(b'1:'+encodestring(g))
+    return group.deserialize(b'1:'+encodebytes(g))
 
 
 def deserialize2(g):
     """ """
     # Only work in G1 here
-    return group.deserialize(b'2:'+encodestring(g))
+    return group.deserialize(b'2:'+encodebytes(g))
 
 
 g1 = group.hash('geng1', G1)

@@ -1,4 +1,4 @@
-from base64 import encodestring, decodestring
+from base64 import encodebytes, decodebytes
 from random import shuffle
 
 from Crypto.Hash import SHA256
@@ -64,7 +64,7 @@ def test_ciphertext_generation():
     U, V, W = ciphertext
 
     assert len(V) == 32
-    UV = decodestring(group.serialize(U)[2:]) + V
+    UV = decodebytes(group.serialize(U)[2:]) + V
     H = group.hash(UV, G2)
     assert pair(g1, W) == pair(U, H)
 
@@ -85,6 +85,6 @@ def test_xor():
 def test_deserialize(pairing_group, n, g):
     from honeybadgerbft.crypto.threshenc import tpke
     deserialize_func = getattr(tpke, 'deserialize{}'.format(n))
-    base64_encoded_data = '{}:{}'.format(n, encodestring(g).decode())
+    base64_encoded_data = '{}:{}'.format(n, encodebytes(g).decode())
     assert (deserialize_func(g) ==
             pairing_group.deserialize(base64_encoded_data.encode()))

@@ -14,7 +14,7 @@ def handle_conf_messages(*, sender, message, conf_values, pid, bv_signal):
     _, r, v = message
     assert v in ((0,), (1,), (0, 1))
     if sender in conf_values[r][v]:
-        logger.warn(f'Redundant CONF received {message} by {sender}',
+        logger.warning(f'Redundant CONF received {message} by {sender}',
                     extra={'nodeid': pid, 'epoch': r})
         # FIXME: Raise for now to simplify things & be consistent
         # with how other TAGs are handled. Will replace the raise
@@ -97,7 +97,7 @@ def binaryagreement(sid, pid, N, f, coin, input, decide, broadcast, receive):
                     # because it appeared first, but maybe the protocol simply
                     # needs to continue.
                     print(f'Redundant EST received by {sender}', msg)
-                    logger.warn(
+                    logger.warning(
                         f'Redundant EST message received by {sender}: {msg}',
                         extra={'nodeid': pid, 'epoch': msg[1]}
                     )

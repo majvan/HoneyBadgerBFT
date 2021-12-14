@@ -1,6 +1,6 @@
 import pickle
 import random
-from base64 import encodestring
+from base64 import encodebytes
 
 from charm.core.math.pairing import pc_element
 from pytest import mark
@@ -72,6 +72,6 @@ def test_deserialize_arg(n, g, mocker):
     mocked_deserialize = mocker.patch.object(
         boldyreva.group, 'deserialize', autospec=True)
     deserialize_func = getattr(boldyreva, 'deserialize{}'.format(n))
-    base64_encoded_data = '{}:{}'.format(n, encodestring(g).decode())
+    base64_encoded_data = '{}:{}'.format(n, encodebytes(g).decode())
     deserialize_func(g)
     mocked_deserialize.assert_called_once_with(base64_encoded_data.encode())
