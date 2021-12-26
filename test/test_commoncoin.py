@@ -1,9 +1,13 @@
 import unittest
 import gevent
 import random
+
 from gevent.queue import Queue
 from honeybadgerbft.core.commoncoin import shared_coin
 from honeybadgerbft.crypto.threshsig.boldyreva import dealer
+import logging
+
+logger = logging.getLogger(__name__)
 
 def simple_router(N, maxdelay=0.01, seed=None):
     """Builds a set of connected channels, with random delay
@@ -17,6 +21,7 @@ def simple_router(N, maxdelay=0.01, seed=None):
     def makeBroadcast(i):
         def _send(j, o):
             delay = rnd.random() * maxdelay
+            logger.debug(f'BC {o[0]} {i} --> {j} after delay {delay}')
             #print 'BC   %8s [%2d -> %2d] %2.1f' % (o[0], i, j, delay*1000)
             gevent.spawn_later(delay, queues[j].put, (i,o))
             #queues[j].put((i, o))
@@ -48,6 +53,7 @@ def byzantine_router(N, maxdelay=0.01, seed=None, **byzargs):
     def makeBroadcast(i):
         def _send(j, o):
             delay = rnd.random() * maxdelay
+            logger.debug(f'BC {o[0]} {i} --> {j} after delay {delay}')
             gevent.spawn_later(delay, queues[j].put, (i,o))
         def _bc(o):
             for j in range(N): _send(j, o)
