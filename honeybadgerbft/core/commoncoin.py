@@ -1,9 +1,12 @@
 import logging
 
+from dssim.simulation import sim, DSSchedulable
+from honeybadgerbft.core.adapters import Queue
+
 from honeybadgerbft.crypto.threshsig.boldyreva import serialize
 from collections import defaultdict
-from gevent import Greenlet
-from gevent.queue import Queue
+#from gevent import Greenlet
+#from gevent.queue import Queue
 import hashlib
 
 logger = logging.getLogger(__name__)
@@ -36,13 +39,14 @@ def shared_coin(sid, pid, N, f, PK, SK, broadcast, receive):
     received = defaultdict(dict)
     outputQueue = defaultdict(lambda: Queue(1))
 
+    @DSSchedulable
     def _recv():
         while True:     # main receive loop
             logger.debug(f'entering loop ' +
                          f'nodeid: {pid}, epoch: ?'
                          )
             # New shares for some round r, from sender i
-            (i, (_, r, sig)) = receive()
+            (i, (_, r, sig)) = yield from receive()
             logger.debug(f'received i, _, r, sig: {i, _, r, sig} ' +
                          f'nodeid: {pid}, epoch: {r}'
                          )
@@ -84,8 +88,7 @@ def shared_coin(sid, pid, N, f, PK, SK, broadcast, receive):
                              )
                 outputQueue[r].put_nowait(bit)
 
-    # greenletPacker(Greenlet(_recv), 'shared_coin', (pid, N, f, broadcast, receive)).start()
-    Greenlet(_recv).start()
+    sim.schedule(0, _recv())
 
     def getCoin(round):
         """Gets a coin.
@@ -100,6 +103,7 @@ def shared_coin(sid, pid, N, f, PK, SK, broadcast, receive):
                      f'nodeid: {pid}, epoch: {round}'
                      )
         broadcast(('COIN', round, SK.sign(h)))
-        return outputQueue[round].get()
+        obj = yield from outputQueue[round].get()
+        return obj
 
     return getCoin
