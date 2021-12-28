@@ -1,10 +1,12 @@
 import logging
 import unittest
-import gevent
+#import gevent
+from dssim.simulation import sim
 import random
 
-from gevent.event import Event
-from gevent.queue import Queue
+#from gevent.event import Event
+#from gevent.queue import Queue
+from honeybadgerbft.core.adapters import Event, Queue
 from honeybadgerbft.core.commoncoin import shared_coin
 from honeybadgerbft.core.binaryagreement import binaryagreement
 from honeybadgerbft.crypto.threshsig.boldyreva import dealer
@@ -28,7 +30,7 @@ def simple_broadcast_router(N, maxdelay=0.005, seed=None):
         def _send(j, o):
             delay = rnd.random() * maxdelay
             #print 'SEND   %8s [%2d -> %2d] %2.1f' % (o[0], i, j, delay*1000), o[1:]
-            gevent.spawn_later(delay, queues[j].put, (i,o))
+            sim.schedule(delay, queues[j].put((i,o)))
             #queues[j].put((i, o))
         def _bc(o):
             #print 'BCAST  %8s [%2d ->  *]' % (o[0], i), o[1]
@@ -37,7 +39,7 @@ def simple_broadcast_router(N, maxdelay=0.005, seed=None):
 
     def makeRecv(j):
         def _recv():
-            (i,o) = queues[j].get()
+            (i,o) = yield from queues[j].get()
             #print 'RECV %8s [%2d -> %2d]' % (o[0], i, j)
             return (i,o)
         return _recv
@@ -68,11 +70,12 @@ def byzantine_broadcast_router(N, maxdelay=0.005, seed=None, **byzargs):
                     o[0] = byz_tag
                     o = tuple(o)
 
-            gevent.spawn_later(delay, queues[j].put, (i, o))
+            sim.schedule(delay, queues[j].put((i,o)))
+
 
             if (j == byzargs.get('byznode') and
                     o[0] == byzargs.get('redundant_msg_type')):
-                gevent.spawn_later(delay, queues[j].put, (i, o))
+                sim.schedule(delay, queues[j].put((i, o)))
 
         def _bc(o):
             for j in range(N):
@@ -82,7 +85,7 @@ def byzantine_broadcast_router(N, maxdelay=0.005, seed=None, **byzargs):
 
     def makeRecv(j):
         def _recv():
-            (i,o) = queues[j].get()
+            (i,o) = yield from queues[j].get()
             return (i,o)
 
         return _recv
@@ -93,7 +96,7 @@ def byzantine_broadcast_router(N, maxdelay=0.005, seed=None, **byzargs):
 
 def release_held_messages(q, receivers):
     for m in q:
-        receivers[m['receiver']].put((m['sender'], m['msg']))
+        receivers[m['receiver']].put_nowait((m['sender'], m['msg']))
 
 
 def dummy_coin(sid, N, f):
@@ -127,20 +130,23 @@ def _test_binaryagreement_dummy(N=4, f=1, seed=None):
         inputs.append(Queue())
         outputs.append(Queue())
         
-        t = gevent.spawn(binaryagreement, sid, i, N, f, coin,
+        t = binaryagreement(sid, i, N, f, coin,
                          inputs[i].get, outputs[i].put_nowait, sends[i], recvs[i])
+        sim.schedule(0, t)
         threads.append(t)
 
     for i in range(N):
-        inputs[i].put(random.randint(0,1))
+        inputs[i].put_nowait(random.randint(0,1))
     #gevent.killall(threads[N-f:])
     #gevent.sleep(3)
     #for i in range(N-f, N):
     #    inputs[i].put(0)
     try:
-        outs = [outputs[i].get() for i in range(N)]
+        outs = [None] * N
+        for i in range(N):
+            outs[i] = yield from outputs[i].get()
         assert len(set(outs)) == 1
-        try: gevent.joinall(threads)
+        try: sim.run()
         except gevent.hub.LoopExit: pass
     except KeyboardInterrupt:
         gevent.killall(threads)
@@ -170,18 +176,22 @@ def test_binaryagreement_dummy_with_redundant_messages(byznode, msg_type):
     for i in range(N):
         inputs.append(Queue())
         outputs.append(Queue())
-        t = gevent.spawn(binaryagreement, sid, i, N, f, coin,
+        t = binaryagreement(sid, i, N, f, coin,
                          inputs[i].get, outputs[i].put_nowait, sends[i], recvs[i])
+        sim.schedule(0, t)
         threads.append(t)
 
     for i in range(N):
-        inputs[i].put(random.randint(0,1))
+        inputs[i].put_nowait(random.randint(0,1))
 
-    outs = [outputs[i].get() for i in range(N) if i != byznode]
+    outs = [None] * N
+    for i in range(N):
+        if i != byznode:
+            outs[i] = yield from outputs[i].get()
     assert all(v in (0, 1) and v == outs[0] for v in outs)
 
     try:
-        gevent.joinall(threads)
+        sim.run()
     except gevent.hub.LoopExit:
         pass
 
@@ -204,18 +214,22 @@ def test_binaryagreement_dummy_with_byz_message_type(byznode):
     for i in range(N):
         inputs.append(Queue())
         outputs.append(Queue())
-        t = gevent.spawn(binaryagreement, sid, i, N, f, coin,
+        t = binaryagreement(sid, i, N, f, coin,
                          inputs[i].get, outputs[i].put_nowait, sends[i], recvs[i])
+        sim.schedule(0, t)
         threads.append(t)
 
     for i in range(N):
-        inputs[i].put(random.randint(0,1))
+        inputs[i].put_nowait(random.randint(0,1))
 
-    outs = [outputs[i].get() for i in range(N) if i != byznode]
+    outs = [None] * N
+    for i in range(N):
+        if i != byznode:
+            outs[i] = yield from outputs[i].get()
     assert all(v in (0, 1) and v == outs[0] for v in outs)
 
     try:
-        gevent.joinall(threads)
+        sim.run()
     except gevent.hub.LoopExit:
         pass
 
@@ -253,20 +267,23 @@ def _test_binaryagreement(N=4, f=1, seed=None):
         inputs.append(Queue())
         outputs.append(Queue())
         
-        t = gevent.spawn(binaryagreement, sid, i, N, f, coins[i],
+        t = binaryagreement(sid, i, N, f, coins[i],
                          inputs[i].get, outputs[i].put_nowait, sends[i], recvs[i])
+        sim.schedule(0, t)
         threads.append(t)
 
     for i in range(N):
-        inputs[i].put(random.randint(0,1))
+        inputs[i].put_nowait(random.randint(0,1))
     #gevent.killall(threads[N-f:])
     #gevent.sleep(3)
     #for i in range(N-f, N):
     #    inputs[i].put(0)
     try:
-        outs = [outputs[i].get() for i in range(N)]
+        outs = [None] * N
+        for i in range(N):
+            outs[i]= yield from outputs[i].get()
         assert len(set(outs)) == 1
-        try: gevent.joinall(threads)
+        try: sim.run()
         except gevent.hub.LoopExit: pass
     except KeyboardInterrupt:
         gevent.killall(threads)
@@ -289,11 +306,11 @@ def test_set_next_round_estimate_with_decision(values, s, already_decided,
         values=values,
         s=s,
         already_decided=already_decided,
-        decide=decide.put,
+        decide=decide.put_nowait,
     )
     assert updated_est == expected_est
     assert updated_already_decided == expected_already_decided
-    assert decide.get() == expected_output
+    assert decide.get_nowait() == expected_output
 
 
 @mark.parametrize('values,s,already_decided,'
@@ -321,11 +338,11 @@ def test_set_next_round_estimate(values, s, already_decided,
         values=values,
         s=s,
         already_decided=already_decided,
-        decide=decide.put,
+        decide=decide.put_nowait,
     )
     assert updated_est == expected_est
     assert updated_already_decided == expected_already_decided
-    assert decide.empty()
+    assert len(decide) == 0
 
 
 @mark.parametrize('values,s,already_decided', (
@@ -363,22 +380,26 @@ def test_issue59_attack(caplog):
         inputs.append(Queue())
         outputs.append(Queue())
 
-    t = gevent.spawn(byz_ba_issue_59, sid, 3, N, f, coins[3],
+    t = byz_ba_issue_59(sid, 3, N, f, coins[3],
                      inputs[3].get, outputs[3].put_nowait, sends[3], recvs[3])
+    sim.schedule(0, t)
     threads.append(t)
 
     for i in (2, 0, 1):
-        t = gevent.spawn(binaryagreement, sid, i, N, f, coins[i],
+        t = binaryagreement(sid, i, N, f, coins[i],
                          inputs[i].get, outputs[i].put_nowait, sends[i], recvs[i])
+        sim.schedule(0, t)
         threads.append(t)
 
-    inputs[0].put(0)    # A_0
-    inputs[1].put(0)    # A_1
-    inputs[2].put(1)    # B
-    inputs[3].put(0)    # F (x)
+    inputs[0].put_nowait(0)    # A_0
+    inputs[1].put_nowait(0)    # A_1
+    inputs[2].put_nowait(1)    # B
+    inputs[3].put_nowait(0)    # F (x)
 
     try:
-        outs = [outputs[i].get() for i in range(N)]
+        outputs = [None] * N
+        for i in range(N):
+            outs[i] = yield from outputs[i].get()
     except gevent.hub.LoopExit:
         ba_node_2_log_records = [
             record for record in caplog.records
@@ -410,6 +431,6 @@ def test_issue59_attack(caplog):
         assert est_value_round_1 == coin_value
 
     try:
-        gevent.joinall(threads)
+        sim.run()
     except gevent.hub.LoopExit:
         pass

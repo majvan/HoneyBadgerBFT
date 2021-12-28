@@ -1,5 +1,7 @@
-import gevent
-from gevent.event import Event
+#import gevent
+#from gevent.event import Event
+from dssim.simulation import sim, DSSchedulable
+from honeybadgerbft.core.adapters import Event
 
 from collections import defaultdict
 import logging
@@ -53,9 +55,9 @@ def wait_for_conf_values(*, pid, N, f, epoch, conf_sent, bin_values,
             return set((0, 1))
 
         bv_signal.clear()
-        bv_signal.wait()
+        yield from bv_signal.wait()
 
-
+@DSSchedulable
 def binaryagreement(sid, pid, N, f, coin, input, decide, broadcast, receive):
     """Binary consensus from [MMR14]. It takes an input ``vi`` and will
     finally write the decided value into ``decide`` channel.
@@ -82,9 +84,10 @@ def binaryagreement(sid, pid, N, f, coin, input, decide, broadcast, receive):
     # This event is triggered whenever bin_values or aux_values changes
     bv_signal = Event()
 
+    @DSSchedulable
     def _recv():
         while True:  # not finished[pid]:
-            (sender, msg) = receive()
+            (sender, msg) = yield from receive()
             logger.debug(f'receive {msg} from node {sender}',
                          extra={'nodeid': pid, 'epoch': msg[1]})
             assert sender in range(N)
@@ -163,10 +166,11 @@ def binaryagreement(sid, pid, N, f, coin, input, decide, broadcast, receive):
     # coin = shared_coin(sid+'COIN', pid, N, f, _coin_broadcast, _coin_recv.get)
 
     # Run the receive loop in the background
-    _thread_recv = gevent.spawn(_recv)
+    #_thread_recv = gevent.spawn(_recv)
+    sim.schedule(0, _recv())
 
     # Block waiting for the input
-    vi = input()
+    vi = yield from input()
     assert vi in (0, 1)
     est = vi
     r = 0
@@ -182,7 +186,7 @@ def binaryagreement(sid, pid, N, f, coin, input, decide, broadcast, receive):
         while len(bin_values[r]) == 0:
             # Block until a value is output
             bv_signal.clear()
-            bv_signal.wait()
+            yield from bv_signal.wait()
 
         w = next(iter(bin_values[r]))  # take an element
         logger.debug(f"broadcast {('AUX', r, w)}",
@@ -212,7 +216,7 @@ def binaryagreement(sid, pid, N, f, coin, input, decide, broadcast, receive):
                 # print('[sid:%s] [pid:%d] VALUES BOTH %d' % (sid, pid, r))
                 break
             bv_signal.clear()
-            bv_signal.wait()
+            yield from bv_signal.wait()
 
         logger.debug(f'Completed AUX phase with values = {values}',
                      extra={'nodeid': pid, 'epoch': r})
@@ -222,7 +226,7 @@ def binaryagreement(sid, pid, N, f, coin, input, decide, broadcast, receive):
             f'block until at least N-f ({N-f}) CONF values are received',
             extra={'nodeid': pid, 'epoch': r})
         if not conf_sent[r][tuple(values)]:
-            values = wait_for_conf_values(
+            values = yield from wait_for_conf_values(
                 pid=pid,
                 N=N,
                 f=f,
