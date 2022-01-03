@@ -1,8 +1,10 @@
 import random
 
-import gevent
-from gevent import Greenlet
-from gevent.queue import Queue
+#import gevent
+#from gevent import Greenlet
+#from gevent.queue import Queue
+from dssim.simulation import sim
+from honeybadgerbft.core.adapters import Queue
 from pytest import mark, raises
 
 from honeybadgerbft.core.reliablebroadcast import reliablebroadcast, encode, decode
@@ -56,13 +58,13 @@ def simple_router(N, maxdelay=0.01, seed=None):
         def _send(j, o):
             delay = rnd.random() * maxdelay
             #print 'SEND %8s [%2d -> %2d] %.2f' % (o[0], i, j, delay)
-            gevent.spawn_later(delay, queues[j].put, (i,o))
+            sim.schedule(delay, queues[j].put((i,o)))
             #queues[j].put((i, o))
         return _send
 
     def makeRecv(j):
         def _recv():
-            (i,o) = queues[j].get()
+            (i,o) = yield from queues[j].get()
             #print 'RECV %8s [%2d -> %2d]' % (o[0], i, j)
             return (i,o)
         return _recv
@@ -93,24 +95,24 @@ def byzantine_router(N, maxdelay=0.01, seed=None, **byzargs):
                 o = tuple(byz_o)
             if (byzargs.get('fake_sender') and
                     o[0] == 'VAL' and i == byzargs.get('byznode')):
-                gevent.spawn_later(delay, queues[j].put, ((i + 1) % 4, o))
+                sim.schedule(delay, queues[j].put(((i + 1) % 4, o)))
             elif byzargs.get('slow_echo') and i != 2:
                 if o[0] == 'READY':
-                    gevent.spawn_later(delay*0.001, queues[j].put, (i, o))
+                    sim.schedule(delay*0.001, queues[j].put((i, o)))
                 elif o[0] == 'ECHO':
-                    gevent.spawn_later(delay*10, queues[j].put, (i, o))
+                    sim.schedule(delay*10, queues[j].put((i, o)))
                 else:
-                    gevent.spawn_later(delay, queues[j].put, (i, o))
+                    sim.schedule(delay, queues[j].put((i, o)))
             else:
-                gevent.spawn_later(delay, queues[j].put, (i, o))
+                sim.schedule(delay, queues[j].put((i, o)))
             if byzargs.get('redundant_message_type') == o[0]:
-                gevent.spawn_later(delay, queues[j].put, (i, o))
+                sim.schedule(delay, queues[j].put((i, o)))
 
         return _send
 
     def makeRecv(j):
         def _recv():
-            i, o = queues[j].get()
+            i, o = yield from queues[j].get()
             return i ,o
         return _recv
 
@@ -130,13 +132,13 @@ def _test_rbc1(N=4, f=1, leader=None, seed=None):
     leader_input = Queue(1)
     for i in range(N):
         input = leader_input.get if i == leader else None
-        t = Greenlet(reliablebroadcast, sid, i, N, f, leader, input, recvs[i], sends[i])
-        t.start()
+        t = reliablebroadcast(sid, i, N, f, leader, input, recvs[i], sends[i])
+        sim.schedule(0, t)
         threads.append(t)
 
     m = b"Hello! This is a test message."
-    leader_input.put(m)
-    gevent.joinall(threads)
+    leader_input.put_nowait(m)
+    sim.run(10)
     assert [t.value for t in threads] == [m]*N
 
 
@@ -159,13 +161,13 @@ def _test_rbc2(N=4, f=1, leader=None, seed=None):
 
     for i in range(N):
         input = leader_input.get if i == leader else None
-        t = Greenlet(reliablebroadcast, sid, i, N, f, leader, input, recvs[i], sends[i])
-        t.start()
+        t = reliablebroadcast(sid, i, N, f, leader, input, recvs[i], sends[i])
+        sim.schedule(0, t)
         threads.append(t)
 
     m = b"Hello!asdfasdfasdfasdfasdfsadf"
-    leader_input.put(m)
-    gevent.sleep(0)  # Let the leader get out its first message
+    leader_input.put_nowait(m)
+    #gevent.sleep(0)  # Let the leader get out its first message
 
     # Crash f of the nodes
     crashed = set()
@@ -173,10 +175,13 @@ def _test_rbc2(N=4, f=1, leader=None, seed=None):
     for _ in range(f):
         i = rnd.choice(range(N))
         crashed.add(i)
-        threads[i].kill()
-        threads[i].join()
+        #threads[i].kill()
+        #threads[i].join()
+        t.send('Not an event') # this should cause an exception
+
     #print 'Crashed:', crashed
-    gevent.joinall(threads)
+    #gevent.joinall(threads)
+    sim.run(10)
     for i,t in enumerate(threads):
         if i not in crashed: assert t.value == m
 
@@ -201,13 +206,14 @@ def test_rbc_when_merkle_verify_fails(N, f, tag, seed):
     for pid in range(N):
         sid = 'sid{}'.format(leader)
         input = leader_input.get if pid == leader else None
-        t = Greenlet(reliablebroadcast, sid, pid, N, f, leader, input, recvs[pid], sends[pid])
-        t.start()
+        t = reliablebroadcast(sid, pid, N, f, leader, input, recvs[pid], sends[pid])
+        sim.schedule(0, t)
         threads.append(t)
 
     m = b"Hello! This is a test message."
-    leader_input.put(m)
-    completed_greenlets = gevent.joinall(threads, timeout=0.5)
+    leader_input.put_nowait(m)
+    #completed_greenlets = gevent.joinall(threads, timeout=0.5)
+    sim.run(0.5)
     expected_rbc_result = None if leader == byznode and tag == 'VAL' else m
     assert all([t.value == expected_rbc_result for t in threads])
 
@@ -224,13 +230,14 @@ def test_rbc_receives_val_from_sender_not_leader(N, f, seed):
     for pid in range(N):
         sid = 'sid{}'.format(leader)
         input = leader_input.get if pid == leader else None
-        t = Greenlet(reliablebroadcast, sid, pid, N, f, leader, input, recvs[pid], sends[pid])
-        t.start()
+        t = reliablebroadcast(sid, pid, N, f, leader, input, recvs[pid], sends[pid])
+        sim.schedule(0, t)
         threads.append(t)
 
     m = "Hello! This is a test message."
-    leader_input.put(m)
-    completed_greenlets = gevent.joinall(threads, timeout=0.5)
+    leader_input.put_nowait(m)
+    #completed_greenlets = gevent.joinall(threads, timeout=0.5)
+    sim.run(0.5)
     expected_rbc_result = None
     assert all([t.value == expected_rbc_result for t in threads])
 
@@ -247,14 +254,15 @@ def test_rbc_with_redundant_message(N, f, tag, seed):
     for pid in range(N):
         sid = 'sid{}'.format(leader)
         input = leader_input.get if pid == leader else None
-        t = Greenlet(reliablebroadcast, sid, pid, N, f,
+        t = reliablebroadcast(sid, pid, N, f,
                      leader, input, recvs[pid], sends[pid])
-        t.start()
+        sim.schedule(0, t)
         threads.append(t)
 
     m = b"Hello! This is a test message."
-    leader_input.put(m)
-    completed_greenlets = gevent.joinall(threads, timeout=0.5)
+    leader_input.put_nowait(m)
+    #completed_greenlets = gevent.joinall(threads, timeout=0.5)
+    sim.run(0.5)
     expected_rbc_result = m
     assert all([t.value == expected_rbc_result for t in threads])
 
@@ -281,14 +289,15 @@ def test_rbc_decode_in_echo_handling_step(N, f, seed):
     for pid in range(N):
         sid = 'sid{}'.format(leader)
         input = leader_input.get if pid == leader else None
-        t = Greenlet(reliablebroadcast, sid, pid, N, f,
+        t = reliablebroadcast(sid, pid, N, f,
                      leader, input, recvs[pid], sends[pid])
-        t.start()
+        sim.schedule(0, t)
         threads.append(t)
 
     m = b"Hello! This is a test message."
-    leader_input.put(m)
-    completed_greenlets = gevent.joinall(threads, timeout=1)
+    leader_input.put_nowait(m)
+    #completed_greenlets = gevent.joinall(threads, timeout=1)
+    sim.run(0.5)
     expected_rbc_result = m
     assert all([t.value == expected_rbc_result for t in threads])
 
@@ -305,14 +314,15 @@ def test_rbc_with_invalid_message(N, f, tag, seed):
     for pid in range(N):
         sid = 'sid{}'.format(leader)
         input = leader_input.get if pid == leader else None
-        t = Greenlet(reliablebroadcast, sid, pid, N, f,
+        t = reliablebroadcast(sid, pid, N, f,
                      leader, input, recvs[pid], sends[pid])
-        t.start()
+        sim.schedule(0, t)
         threads.append(t)
 
     m = "Hello! This is a test message."
-    leader_input.put(m)
-    completed_greenlets = gevent.joinall(threads, timeout=0.5)
+    leader_input.put_nowait(m)
+    #completed_greenlets = gevent.joinall(threads, timeout=0.5)
+    sim.run(0.5)
     expected_rbc_result = None
     assert all([t.value == expected_rbc_result for t in threads])
 

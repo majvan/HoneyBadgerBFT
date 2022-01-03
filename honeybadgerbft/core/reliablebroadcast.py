@@ -1,5 +1,6 @@
 # coding=utf-8
 from collections import defaultdict
+from dssim.simulation import DSSchedulable
 import zfec
 import hashlib
 import math
@@ -128,7 +129,7 @@ def merkleVerify(N, val, roothash, branch, index):
         return False
     return True
 
-
+@DSSchedulable
 def reliablebroadcast(sid, pid, N, f, leader, input, receive, send):
     """Reliable broadcast
 
@@ -194,7 +195,7 @@ def reliablebroadcast(sid, pid, N, f, leader, input, receive, send):
 
     if pid == leader:
         # The leader erasure encodes the input, sending one strip to each participant
-        m = input()  # block until an input is received
+        m = yield from input()  # block until an input is received
         # XXX Python 3 related issue, for now let's tolerate both bytes and
         # strings
         # (with Python 2 it used to be: assert type(m) is str)
@@ -230,7 +231,7 @@ def reliablebroadcast(sid, pid, N, f, leader, input, receive, send):
         return m
 
     while True:  # main receive loop
-        sender, msg = receive()
+        sender, msg = yield from receive()
         if msg[0] == 'VAL' and fromLeader is None:
             # Validation
             (_, roothash, branch, stripe) = msg
